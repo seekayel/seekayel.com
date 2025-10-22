@@ -6,8 +6,22 @@
   ctx.lineCap = "round";
 
   const SAMPLE_POINTS = 360;
-  const points = new Array(SAMPLE_POINTS).fill(0);
-  const targets = new Array(SAMPLE_POINTS).fill(0);
+
+  const createLayer = (amplitudeRatio, changeProbability, response) => ({
+    amplitudeRatio,
+    changeProbability,
+    response,
+    values: new Array(SAMPLE_POINTS).fill(0),
+    targets: new Array(SAMPLE_POINTS).fill(0),
+  });
+
+  const layers = [
+    createLayer(0.05, 0.06, 0.45),
+    createLayer(0.1, 0.03, 0.28),
+    createLayer(0.3, 0.015, 0.12),
+  ];
+
+  const composite = new Array(SAMPLE_POINTS).fill(0);
   const smoothed = new Array(SAMPLE_POINTS).fill(0);
 
   let width = 0;
@@ -19,9 +33,15 @@
     width = window.innerWidth;
     height = window.innerHeight;
 
+    for (const layer of layers) {
+      for (let i = 0; i < SAMPLE_POINTS; i += 1) {
+        layer.values[i] = 0;
+        layer.targets[i] = 0;
+      }
+    }
+
     for (let i = 0; i < SAMPLE_POINTS; i += 1) {
-      points[i] = 0;
-      targets[i] = 0;
+      composite[i] = 0;
       smoothed[i] = 0;
     }
 
@@ -36,22 +56,32 @@
   };
 
   const updateSignal = () => {
-    const amplitude = height * 0.22;
+    for (const layer of layers) {
+      const layerAmplitude = height * layer.amplitudeRatio;
+
+      for (let i = 0; i < SAMPLE_POINTS; i += 1) {
+        if (Math.random() < layer.changeProbability) {
+          layer.targets[i] = (Math.random() - 0.5) * layerAmplitude;
+        }
+
+        layer.values[i] += (layer.targets[i] - layer.values[i]) * layer.response;
+      }
+    }
 
     for (let i = 0; i < SAMPLE_POINTS; i += 1) {
-      if (Math.random() < 0.06) {
-        targets[i] = (Math.random() - 0.5) * amplitude;
+      let sum = 0;
+      for (const layer of layers) {
+        sum += layer.values[i];
       }
-
-      points[i] += (targets[i] - points[i]) * 0.18;
+      composite[i] = sum;
     }
 
-    smoothed[0] = points[0];
+    smoothed[0] = composite[0];
     for (let i = 1; i < SAMPLE_POINTS - 1; i += 1) {
       smoothed[i] =
-        (points[i - 1] + points[i] * 2.6 + points[i + 1]) / 4.6;
+        (composite[i - 1] + composite[i] * 2.6 + composite[i + 1]) / 4.6;
     }
-    smoothed[SAMPLE_POINTS - 1] = points[SAMPLE_POINTS - 1];
+    smoothed[SAMPLE_POINTS - 1] = composite[SAMPLE_POINTS - 1];
   };
 
   const addScreenNoise = () => {
