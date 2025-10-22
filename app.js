@@ -52,6 +52,14 @@
   const MAX_TOUCH_DURATION = 3000; // ms for normalization
   const MAX_TOUCH_DISTANCE = 500; // pixels for normalization
 
+  // Decay state
+  let lastInputTime = Date.now();
+  let targetAmplitudeMultiplier = 1.0;
+  let targetFrequencyMultiplier = 1.0;
+  const DECAY_DURATION = 3000; // ms to decay to baseline
+  const BASELINE_AMPLITUDE = 1.0;
+  const BASELINE_FREQUENCY = 1.0;
+
   const resizeCanvas = () => {
     dpr = window.devicePixelRatio || 1;
     width = window.innerWidth;
@@ -80,28 +88,43 @@
   };
 
   const updateSignal = () => {
-    // Calculate normalized mouse velocity (decays over time if no movement)
     const now = Date.now();
     const timeSinceMove = now - lastMoveTime;
+
+    // Reset path length after pause
     if (timeSinceMove > PAUSE_THRESHOLD) {
-      mouseVelocity *= 0.95; // decay velocity
-      pathLength = 0; // reset path length after pause
+      pathLength = 0;
     }
 
-    // Determine amplitude and frequency multipliers based on input type
-    let amplitudeMultiplier = 1.0;
-    let frequencyMultiplier = 1.0;
-
+    // Calculate target multipliers based on current input
     if (isTouching) {
       // Mobile: amplitude from touch distance, frequency from duration
-      amplitudeMultiplier = 0.3 + (Math.min(touchDistance, MAX_TOUCH_DISTANCE) / MAX_TOUCH_DISTANCE) * 2.5;
-      frequencyMultiplier = 0.1 + (Math.min(touchDuration, MAX_TOUCH_DURATION) / MAX_TOUCH_DURATION) * 3.0;
-    } else {
+      targetAmplitudeMultiplier = 0.3 + (Math.min(touchDistance, MAX_TOUCH_DISTANCE) / MAX_TOUCH_DISTANCE) * 2.5;
+      targetFrequencyMultiplier = 0.1 + (Math.min(touchDuration, MAX_TOUCH_DURATION) / MAX_TOUCH_DURATION) * 3.0;
+      lastInputTime = now;
+    } else if (mouseVelocity > 0.1) {
       // Desktop: amplitude from path length, frequency from velocity
-      amplitudeMultiplier = 0.3 + (Math.min(pathLength, MAX_PATH_LENGTH) / MAX_PATH_LENGTH) * 2.5;
+      targetAmplitudeMultiplier = 0.3 + (Math.min(pathLength, MAX_PATH_LENGTH) / MAX_PATH_LENGTH) * 2.5;
       const normalizedVelocity = Math.min(mouseVelocity, MAX_VELOCITY) / MAX_VELOCITY;
-      frequencyMultiplier = 0.1 + normalizedVelocity * 3.0;
+      targetFrequencyMultiplier = 0.1 + normalizedVelocity * 3.0;
+      lastInputTime = now;
+
+      // Decay mouse velocity
+      mouseVelocity *= 0.85;
     }
+
+    // Calculate decay factor based on time since last input
+    const timeSinceInput = now - lastInputTime;
+    let decayFactor = 1.0;
+
+    if (timeSinceInput > 0) {
+      // Smooth decay over DECAY_DURATION (3 seconds)
+      decayFactor = Math.max(0, 1 - (timeSinceInput / DECAY_DURATION));
+    }
+
+    // Interpolate current multipliers toward baseline based on decay factor
+    const amplitudeMultiplier = BASELINE_AMPLITUDE + (targetAmplitudeMultiplier - BASELINE_AMPLITUDE) * decayFactor;
+    const frequencyMultiplier = BASELINE_FREQUENCY + (targetFrequencyMultiplier - BASELINE_FREQUENCY) * decayFactor;
 
     for (const layer of layers) {
       const layerAmplitude = height * layer.amplitudeRatio * amplitudeMultiplier;
