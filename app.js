@@ -56,9 +56,13 @@
   let lastInputTime = Date.now();
   let targetAmplitudeMultiplier = 1.0;
   let targetFrequencyMultiplier = 1.0;
-  const DECAY_DURATION = 3000; // ms to decay to baseline
+  const DECAY_TIME_CONSTANT = 1000; // ms - time constant for exponential decay (τ)
   const BASELINE_AMPLITUDE = 1.0;
   const BASELINE_FREQUENCY = 1.0;
+
+  // Header link hover state
+  let isHoveringLink = false;
+  const HOVER_NOISE_REDUCTION = 0.05; // 5% of current noise when hovering
 
   const resizeCanvas = () => {
     dpr = window.devicePixelRatio || 1;
@@ -113,18 +117,25 @@
       mouseVelocity *= 0.85;
     }
 
-    // Calculate decay factor based on time since last input
+    // Calculate exponential decay factor (like capacitor discharge: V(t) = V₀ * e^(-t/τ))
     const timeSinceInput = now - lastInputTime;
     let decayFactor = 1.0;
 
     if (timeSinceInput > 0) {
-      // Smooth decay over DECAY_DURATION (3 seconds)
-      decayFactor = Math.max(0, 1 - (timeSinceInput / DECAY_DURATION));
+      // Exponential decay with time constant τ (DECAY_TIME_CONSTANT)
+      // After 3τ (~3 seconds), signal decays to ~5% of initial value
+      decayFactor = Math.exp(-timeSinceInput / DECAY_TIME_CONSTANT);
     }
 
-    // Interpolate current multipliers toward baseline based on decay factor
-    const amplitudeMultiplier = BASELINE_AMPLITUDE + (targetAmplitudeMultiplier - BASELINE_AMPLITUDE) * decayFactor;
-    const frequencyMultiplier = BASELINE_FREQUENCY + (targetFrequencyMultiplier - BASELINE_FREQUENCY) * decayFactor;
+    // Interpolate current multipliers toward baseline based on exponential decay
+    let amplitudeMultiplier = BASELINE_AMPLITUDE + (targetAmplitudeMultiplier - BASELINE_AMPLITUDE) * decayFactor;
+    let frequencyMultiplier = BASELINE_FREQUENCY + (targetFrequencyMultiplier - BASELINE_FREQUENCY) * decayFactor;
+
+    // Apply hover reduction - reduce to 5% of current values when hovering over links
+    if (isHoveringLink) {
+      amplitudeMultiplier *= HOVER_NOISE_REDUCTION;
+      frequencyMultiplier *= HOVER_NOISE_REDUCTION;
+    }
 
     for (const layer of layers) {
       const layerAmplitude = height * layer.amplitudeRatio * amplitudeMultiplier;
@@ -283,6 +294,15 @@
     // Keep the last values to allow decay
   };
 
+  // Header link hover handlers
+  const handleLinkEnter = () => {
+    isHoveringLink = true;
+  };
+
+  const handleLinkLeave = () => {
+    isHoveringLink = false;
+  };
+
   // Add event listeners
   window.addEventListener("mousemove", handleMouseMove);
   window.addEventListener("touchstart", handleTouchStart, { passive: false });
@@ -290,6 +310,13 @@
   window.addEventListener("touchend", handleTouchEnd);
   window.addEventListener("touchcancel", handleTouchEnd);
   window.addEventListener("resize", resizeCanvas);
+
+  // Add hover listeners to all nav links
+  const navLinks = document.querySelectorAll(".nav a");
+  navLinks.forEach((link) => {
+    link.addEventListener("mouseenter", handleLinkEnter);
+    link.addEventListener("mouseleave", handleLinkLeave);
+  });
 
   resizeCanvas();
   requestAnimationFrame(draw);
