@@ -28,6 +28,30 @@
   let height = 0;
   let dpr = window.devicePixelRatio || 1;
 
+  // Mouse tracking state
+  let mouseX = 0;
+  let mouseY = 0;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+  let mouseVelocity = 0;
+  let pathLength = 0;
+  let lastMoveTime = Date.now();
+  const PAUSE_THRESHOLD = 100; // ms without movement counts as pause
+  const MAX_VELOCITY = 50; // pixels per frame for normalization
+  const MAX_PATH_LENGTH = 2000; // pixels for normalization
+
+  // Touch tracking state
+  let touchStartTime = 0;
+  let touchDuration = 0;
+  let touchDistance = 0;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
+  let isTouching = false;
+  const MAX_TOUCH_DURATION = 3000; // ms for normalization
+  const MAX_TOUCH_DISTANCE = 500; // pixels for normalization
+
   const resizeCanvas = () => {
     dpr = window.devicePixelRatio || 1;
     width = window.innerWidth;
@@ -56,11 +80,39 @@
   };
 
   const updateSignal = () => {
+    // Calculate normalized mouse velocity (decays over time if no movement)
+    const now = Date.now();
+    const timeSinceMove = now - lastMoveTime;
+    if (timeSinceMove > PAUSE_THRESHOLD) {
+      mouseVelocity *= 0.95; // decay velocity
+      pathLength = 0; // reset path length after pause
+    }
+
+    // Determine amplitude and frequency multipliers based on input type
+    let amplitudeMultiplier = 1.0;
+    let frequencyMultiplier = 1.0;
+
+    if (isTouching) {
+      // Mobile: amplitude from touch distance, frequency from duration
+      amplitudeMultiplier = 0.3 + (Math.min(touchDistance, MAX_TOUCH_DISTANCE) / MAX_TOUCH_DISTANCE) * 2.5;
+      frequencyMultiplier = 0.1 + (Math.min(touchDuration, MAX_TOUCH_DURATION) / MAX_TOUCH_DURATION) * 3.0;
+    } else {
+      // Desktop: amplitude from path length, frequency from velocity
+      amplitudeMultiplier = 0.3 + (Math.min(pathLength, MAX_PATH_LENGTH) / MAX_PATH_LENGTH) * 2.5;
+      const normalizedVelocity = Math.min(mouseVelocity, MAX_VELOCITY) / MAX_VELOCITY;
+      frequencyMultiplier = 0.1 + normalizedVelocity * 3.0;
+    }
+
     for (const layer of layers) {
-      const layerAmplitude = height * layer.amplitudeRatio;
+      const layerAmplitude = height * layer.amplitudeRatio * amplitudeMultiplier;
+
+      // 90% based on mouse/touch input, 10% random
+      const baseFrequency = layer.changeProbability * frequencyMultiplier * 0.9;
+      const randomComponent = layer.changeProbability * 0.1;
+      const effectiveFrequency = baseFrequency + randomComponent;
 
       for (let i = 0; i < SAMPLE_POINTS; i += 1) {
-        if (Math.random() < layer.changeProbability) {
+        if (Math.random() < effectiveFrequency) {
           layer.targets[i] = (Math.random() - 0.5) * layerAmplitude;
         }
 
@@ -147,7 +199,75 @@
     requestAnimationFrame(draw);
   };
 
+  // Mouse event handlers
+  const handleMouseMove = (e) => {
+    const currentTime = Date.now();
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+
+    // Calculate velocity
+    const dx = mouseX - lastMouseX;
+    const dy = mouseY - lastMouseY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    mouseVelocity = distance;
+
+    // Update path length
+    pathLength += distance;
+
+    lastMouseX = mouseX;
+    lastMouseY = mouseY;
+    lastMoveTime = currentTime;
+  };
+
+  // Touch event handlers
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    isTouching = true;
+    touchStartTime = Date.now();
+    const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    lastTouchX = touchStartX;
+    lastTouchY = touchStartY;
+    touchDistance = 0;
+    touchDuration = 0;
+  };
+
+  const handleTouchMove = (e) => {
+    e.preventDefault();
+    if (!isTouching) return;
+
+    const touch = e.touches[0];
+    const currentX = touch.clientX;
+    const currentY = touch.clientY;
+
+    // Calculate distance moved in this touch
+    const dx = currentX - lastTouchX;
+    const dy = currentY - lastTouchY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    touchDistance += distance;
+    touchDuration = Date.now() - touchStartTime;
+
+    lastTouchX = currentX;
+    lastTouchY = currentY;
+  };
+
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    isTouching = false;
+    // Keep the last values to allow decay
+  };
+
+  // Add event listeners
+  window.addEventListener("mousemove", handleMouseMove);
+  window.addEventListener("touchstart", handleTouchStart, { passive: false });
+  window.addEventListener("touchmove", handleTouchMove, { passive: false });
+  window.addEventListener("touchend", handleTouchEnd);
+  window.addEventListener("touchcancel", handleTouchEnd);
   window.addEventListener("resize", resizeCanvas);
+
   resizeCanvas();
   requestAnimationFrame(draw);
 })();
